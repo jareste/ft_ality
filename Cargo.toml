@@ -1,0 +1,12 @@
+[package]
+name = "ft_ality"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ft_ality_parse"
+path = "src/parse.rs"
+
+[[bin]]
+name = "ft_ality"
+path = "src/main.rs"
