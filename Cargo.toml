@@ -4,9 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "ft_ality_parse"
-path = "src/parse.rs"
+name = "ft_ality"
+path = "src/lib.rs"
 
 [[bin]]
 name = "ft_ality"
 path = "src/main.rs"
+    
