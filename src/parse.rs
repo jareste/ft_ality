@@ -1,6 +1,20 @@
 use std::collections::{BTreeSet};
 use std::fmt;
 
+#[derive(Debug, Clone)]
+pub struct Binding {
+    pub key: String,
+    pub internal: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct CompiledGrammar {
+    pub combos: Vec<Rule>,
+    pub bindings: Vec<Binding>,
+    pub internal_alphabet: Vec<String>,
+    pub key_alphabet: Vec<String>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Token(String);
 
@@ -104,6 +118,48 @@ pub fn parse_gmr_file(path: &str) -> Result<Grammar, ParseError> {
     std::fs::read_to_string(path)
         .map_err(ParseError::Io)
         .and_then(|s| parse_gmr(&s))
+}
+
+pub fn classify(g: &Grammar) -> CompiledGrammar {
+    #[inline]
+    fn is_internal(s: &str) -> bool { s.starts_with('[') && s.ends_with(']') }
+
+    let (bindings, combos, internal_set, key_set) =
+        g.rules.iter().fold(
+            (Vec::<Binding>::new(), Vec::<Rule>::new(),
+             BTreeSet::<String>::new(), BTreeSet::<String>::new()),
+            |(mut bs, mut cs, mut iset, mut kset), r| {
+                let lhs_internal = r.sequence.iter().all(|t| is_internal(t.as_str()));
+                let rhs_internal = is_internal(&r.move_name);
+
+                match (r.sequence.len(), lhs_internal, rhs_internal) {
+                    /* keyboard -> internal (binding) */
+                    (1, false, true) => {
+                        let key = r.sequence[0].as_str().to_string();
+                        let internal = r.move_name.clone();
+                        kset.insert(key.clone());
+                        iset.insert(internal.clone());
+                        bs.push(Binding { key, internal });
+                    }
+                    /* internal* -> move (combo)  */
+                    (_, true, false) => {
+                        for t in &r.sequence { iset.insert(t.as_str().to_string()); }
+                        cs.push(r.clone());
+                    }
+                    /* anything else: ignore silently to keep purity (no prints). */
+                    _ => {}
+                }
+
+                (bs, cs, iset, kset)
+            }
+        );
+
+    CompiledGrammar {
+        combos,
+        bindings,
+        internal_alphabet: internal_set.into_iter().collect(),
+        key_alphabet: key_set.into_iter().collect(),
+    }
 }
 
 #[cfg(test)]

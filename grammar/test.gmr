@@ -1,9 +1,18 @@
-BP -> Claw Slam (Freddy Krueger)
-BP -> Knockdown (Sonya)
-BP -> Fist of Death (Liu-Kang)
+[BP] -> Claw Slam (Freddy Krueger)
+[BP] -> Knockdown (Sonya)
+[BP] -> Fist of Death (Liu-Kang)
 
-BP, FP -> Saibot Blast (Noob Saibot)
-BP, FP -> Active Duty (Jax)
+[BP], [FP] -> Saibot Blast (Noob Saibot)
+[BP], [FP] -> Active Duty (Jax)
 
-Down, Right, FP -> Fireball (Generic)
-Left, Left, BK -> Slide (Generic)
+[Down], [Right], [FP] -> Fireball (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+
+down -> [Down]
+left -> [Left]
+up -> [Up]
+right -> [Right]
+
+q -> [BP]
+w -> [FP]
+
