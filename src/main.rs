@@ -1,8 +1,8 @@
 use std::env;
 use std::collections::HashMap;
 use ft_ality::parse::{parse_gmr_file, classify};
-use ft_ality::input::{RawMode, read_key_token};
 use ft_ality::automaton::Automaton;
+use ft_ality::input::io_shell::{enable_raw_mode, disable_raw_mode, read_key_token};
 
 const RED: &str = "\x1b[31m";
 const RESET: &str = "\x1b[0m";
@@ -51,7 +51,11 @@ fn main() {
         .map(|b| (b.key.clone(), b.internal.clone()))
         .collect();
 
-    let _raw = RawMode::new().expect("failed to switch TTY to raw mode");
+    let result = enable_raw_mode();
+    if let Err(e) = result {
+        eprintln!("Error enabling raw mode: {e}");
+        return;
+    }
 
     loop {
         match read_key_token() {
@@ -67,7 +71,7 @@ fn main() {
                     }
 
                     if debug {
-                        let (outputs, fail) = automaton.state_info(state);
+                        let (outputs, _fail) = automaton.state_info(state);
                         if Some(outputs).is_some() {
                             println!("{}  ⇒  {}", keytok, outputs.join(", "));
                         } else {
@@ -96,4 +100,6 @@ fn main() {
             }
         }
     }
+    disable_raw_mode();
+    println!("Exiting...");
 }

@@ -5,6 +5,8 @@
 #[BP], [FP] -> Saibot Blast (Noob Saibot)
 [BP], [FP] -> Active Duty (Jax)
 
+[BP], [FP], [E] -> Maxi combo
+
 [Down], [Right], [FP] -> Fireball (Generic)
 [Left], [Left], [BK] -> Slide (Generic)
 
@@ -15,4 +17,5 @@ right -> [Right]
 
 q -> [BP]
 w -> [FP]
+e -> [E]
 
