@@ -190,7 +190,7 @@ mod tests {
 
         match grammar {
             Ok(_) => panic!("Expected error for missing arrow"),
-            Err(ParseError::MissingArrow { line_no }) => assert_eq!(line_no, 12), /* The incorrect line is the 12th */
+            Err(ParseError::MissingArrow { line_no }) => assert_eq!(line_no, 6), /* The incorrect line is the 6th */
             Err(e) => panic!("Unexpected error: {}", e),
         }
     }

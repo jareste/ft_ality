@@ -10,4 +10,3 @@ path = "src/lib.rs"
 [[bin]]
 name = "ft_ality"
 path = "src/main.rs"
-    
