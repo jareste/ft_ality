@@ -3,10 +3,19 @@ name = "ft_ality"
 version = "0.1.0"
 edition = "2021"
 
-[lib]
-name = "ft_ality"
-path = "src/lib.rs"
+[features]
+default = ["cli"]
+cli = []
+sdl = ["dep:sdl2", "sdl2/ttf"]
+
+[dependencies]
+sdl2 = { version = "0.37", optional = true, features = ["ttf"] }
 
 [[bin]]
-name = "ft_ality"
-path = "src/main.rs"
+name = "cli"
+path = "src/bin/cli_main.rs"
+
+[[bin]]
+name = "sdl"
+path = "src/bin/sdl_main.rs"
+required-features = ["sdl"]
