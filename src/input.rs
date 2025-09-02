@@ -33,7 +33,8 @@ fn read_csi_tail<F>(next_byte: F, timeout: Duration, max_steps: usize)
 where
     F: FnMut(Duration) -> Option<u8>,
 {
-    fn go<F>(mut next: F, timeout: Duration, steps: usize, acc: String) -> Option<(String, u8)>
+    /* Accumulate parameters into a String; stop when a finalizer arrives. */
+    fn go<F>(mut next: F, timeout: Duration, steps: usize, mut acc: String) -> Option<(String, u8)>
     where
         F: FnMut(Duration) -> Option<u8>,
     {
@@ -44,26 +45,21 @@ where
         if (b'A'..=b'Z').contains(&b) || b"~@".contains(&b) {
             Some((acc, b))
         } else {
-            let mut acc2 = acc;
-            acc2.push(b as char);
-            go(next, timeout, steps - 1, acc2)
+            acc.push(b as char);
+            go(next, timeout, steps - 1, acc)
         }
     }
     go(next_byte, timeout, max_steps, String::new())
 }
 
-/* Just a helper to decode escape sequences.
- * It reads the next byte and checks if it is an escape sequence.
- * If it is, it decodes it into a string representation.
- * For example, it decodes "esc [ A" into "up".
- * If it is not an escape sequence, it returns "esc".
- */
-fn decode_escape_sequence<F>(mut next_byte: F) -> String
+/* Decodes an ESC-prefixed sequence into a token string. */
+pub fn decode_escape_sequence_with<F>(
+    mut next_byte: F,
+    timeout: Duration,
+) -> String
 where
     F: FnMut(Duration) -> Option<u8>,
 {
-    let timeout = Duration::from_millis(120);
-
     match next_byte(timeout) {
         Some(b'[') => {
             if let Some((params, fin)) = read_csi_tail(&mut next_byte, timeout, 6) {
@@ -87,6 +83,7 @@ where
                 "esc".to_string()
             }
         }
+        /* ALT + printable char case: ESC <char> */
         Some(c) if (0x20..=0x7E).contains(&c) => {
             format!("alt-{}", (c as char).to_ascii_lowercase())
         }
@@ -94,16 +91,19 @@ where
     }
 }
 
-/* This function reads a single token from the input.
- * It waits for a key press and returns the token as a string.
- * It supports escape sequences, control characters, and printable characters.
+/* Pure single-token decoder. No I/O; the caller supplies the "next byte" oracle.
+ * - first_timeout: how long to wait for the first byte
+ * - esc_tail_timeout: per-byte timeout when reading the rest of an escape sequence
  */
-pub fn decode_one_token<F>(mut next_byte: F) -> Option<String>
+pub fn decode_one_token_with<F>(
+    mut next_byte: F,
+    first_timeout: Duration,
+    esc_tail_timeout: Duration,
+) -> Option<String>
 where
     F: FnMut(Duration) -> Option<u8>,
 {
-    let timeout = Duration::from_millis(10_000);
-    let b = next_byte(timeout)?;
+    let b = next_byte(first_timeout)?;
 
     if let Some(tok) = ctrl_combo(b) {
         return Some(tok);
@@ -118,7 +118,7 @@ where
         return Some("backspace".into());
     }
     if b == 0x1B {
-        return Some(decode_escape_sequence(&mut next_byte));
+        return Some(decode_escape_sequence_with(&mut next_byte, esc_tail_timeout));
     }
     if (0x20..=0x7E).contains(&b) {
         let ch = b as char;
@@ -131,17 +131,11 @@ where
     None
 }
 
-#[cfg(unix)]
 pub mod io_shell {
-    use super::*;
     use std::io::{self, Read};
     use std::process::{Command, Stdio};
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
 
-    /* Enable raw mode for the terminal.
-     * This disables line buffering and echoing, allowing for immediate input reading.
-     * It uses the `stty` command to set the terminal attributes.
-     */
     pub fn enable_raw_mode() -> io::Result<()> {
         let status = Command::new("sh")
             .arg("-c")
@@ -161,9 +155,6 @@ pub mod io_shell {
         let _ = Command::new("sh").arg("-c").arg("stty sane").status();
     }
 
-    /* Read a single byte from stdin with a timeout.
-     * Returns Some(byte) if a byte is read, or None if the timeout expires.
-     */
     pub fn stdin_next_byte(timeout: Duration) -> Option<u8> {
         let start = Instant::now();
         let mut buf = [0u8; 1];
@@ -185,11 +176,10 @@ pub mod io_shell {
         }
     }
 
-    /* Read a key token from stdin.
-     * It uses the `decode_one_token` function to read and decode the input.
-     * Returns Some(token) if a token is read, or None if the timeout expires.
-     */
-    pub fn read_key_token() -> io::Result<Option<String>> {
-        Ok(super::decode_one_token(|t| stdin_next_byte(t)))
+    pub fn read_key_token(
+        first_timeout: Duration,
+        esc_tail_timeout: Duration,
+    ) -> io::Result<Option<String>> {
+        Ok(super::decode_one_token_with(|t| stdin_next_byte(t), first_timeout, esc_tail_timeout))
     }
 }

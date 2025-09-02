@@ -1,18 +1,19 @@
 use std::time::Instant;
-use crate::engine::Engine;
+use std::time::Duration;
+use crate::engine::{step_keytok, engine_from_gmr_file, current_state_info};
 use crate::input::io_shell::{enable_raw_mode, disable_raw_mode, read_key_token};
 
-/// Run the CLI loop: reads tokens from stdin, feeds the Engine, prints outputs.
 pub fn run_cli(path: &str, debug: bool, step_timeout_ms: u64) -> Result<(), String> {
-    let mut eng = Engine::from_gmr_file(path, std::time::Duration::from_millis(step_timeout_ms))?;
+    let (cfg, mut st) = engine_from_gmr_file(path, Duration::from_millis(step_timeout_ms))?;
 
     if let Err(e) = enable_raw_mode() {
         return Err(format!("Error enabling raw mode: {e}"));
     }
 
-    // Main loop
+    let timeout = Duration::from_millis(10_000);
+    let esc_tail_timeout = Duration::from_millis(120);
     loop {
-        let keytok = match read_key_token() {
+        let keytok = match read_key_token(timeout, esc_tail_timeout) {
             Ok(Some(k)) => k,
             Ok(None) => continue,
             Err(e) => {
@@ -25,18 +26,20 @@ pub fn run_cli(path: &str, debug: bool, step_timeout_ms: u64) -> Result<(), Stri
             break;
         }
 
-        let outs = eng.step_keytok(&keytok, Instant::now());
+        let now_ms = Instant::now().elapsed().as_millis() as u128;
+        let (st2, outs) = step_keytok(&cfg, st, &keytok, now_ms);
+        st = st2;
 
         for m in outs {
             println!("{m} !!");
         }
 
         if debug {
-            let (outputs, fail) = eng.current_state_info();
+            let (outputs, fail) = current_state_info(&cfg, st);
             if outputs.is_empty() {
-                println!("{keytok}  ⇒  (no outputs)   [state={}, fail={}]", eng.current_state(), fail);
+                println!("{keytok}  ⇒  (no outputs)   [state={}, fail={}]", st.cur_state, fail);
             } else {
-                println!("{keytok}  ⇒  {}   [state={}, fail={}]", outputs.join(", "), eng.current_state(), fail);
+                println!("{keytok}  ⇒  {}   [state={}, fail={}]", outputs.join(", "), st.cur_state, fail);
             }
         }
     }

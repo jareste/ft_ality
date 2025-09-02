@@ -7,14 +7,33 @@ use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod};
 use sdl2::pixels::Color;
 
-use crate::engine::{Engine};
+use crate::engine::{
+    bindings, combos_internal, current_state_info, display_for_internal, engine_from_gmr_file,
+    matched_prefix_len, step_keytok, EngineConfig, EngineState,
+};
+
+#[derive(Debug, Clone)]
+enum AppEvent {
+    KeyTok(String),
+    Quit,
+}
+
+type NowMs = u128;
+
+#[derive(Debug, Clone)]
+struct ViewState {
+    engine: EngineState,
+    recent_msgs: VecDeque<String>,
+}
 
 fn keycode_letter(kc: Keycode) -> Option<char> {
     Some(match kc {
-        Keycode::A=>'a', Keycode::B=>'b', Keycode::C=>'c', Keycode::D=>'d', Keycode::E=>'e', Keycode::F=>'f', Keycode::G=>'g',
-        Keycode::H=>'h', Keycode::I=>'i', Keycode::J=>'j', Keycode::K=>'k', Keycode::L=>'l', Keycode::M=>'m', Keycode::N=>'n',
-        Keycode::O=>'o', Keycode::P=>'p', Keycode::Q=>'q', Keycode::R=>'r', Keycode::S=>'s', Keycode::T=>'t', Keycode::U=>'u',
-        Keycode::V=>'v', Keycode::W=>'w', Keycode::X=>'x', Keycode::Y=>'y', Keycode::Z=>'z',
+        Keycode::A=>'a', Keycode::B=>'b', Keycode::C=>'c', Keycode::D=>'d', Keycode::E=>'e',
+        Keycode::F=>'f', Keycode::G=>'g', Keycode::H=>'h', Keycode::I=>'i', Keycode::J=>'j',
+        Keycode::K=>'k', Keycode::L=>'l', Keycode::M=>'m', Keycode::N=>'n', Keycode::O=>'o',
+        Keycode::P=>'p', Keycode::Q=>'q', Keycode::R=>'r', Keycode::S=>'s', Keycode::T=>'t',
+        Keycode::U=>'u', Keycode::V=>'v', Keycode::W=>'w', Keycode::X=>'x', Keycode::Y=>'y',
+        Keycode::Z=>'z',
         _ => return None,
     })
 }
@@ -41,10 +60,170 @@ fn keytok_from_sdl(key: Keycode, km: Mod) -> Option<String> {
     Some(format!("{pref}{base}"))
 }
 
-pub fn run_sdl(path: &str, debug: bool, step_timeout_ms: u64, font_path: &str) -> Result<(), String> {
-    let mut eng = Engine::from_gmr_file(path, Duration::from_millis(step_timeout_ms))?;
+fn map_sdl_event(ev: Event) -> Option<AppEvent> {
+    match ev {
+        Event::Quit { .. } => Some(AppEvent::Quit),
+        Event::KeyDown { keycode: Some(kc), keymod, repeat, .. } if !repeat => {
+            /* check if ctrl+esc or ctrl+c */
+            let ctrl = keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD);
+            if kc == Keycode::Escape && ctrl {
+                return Some(AppEvent::Quit);
+            }
+            if let Some(tok) = keytok_from_sdl(kc, keymod) {
+                if tok == "ctrl-c" { return Some(AppEvent::Quit); }
+                Some(AppEvent::KeyTok(tok))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
+}
 
-    /* Setup */
+/* (cfg, state, event, now) -> new state */
+fn reduce(cfg: &EngineConfig, vs: &ViewState, ev: AppEvent, now_ms: NowMs) -> ViewState {
+    match ev {
+        AppEvent::Quit => vs.clone(),
+        AppEvent::KeyTok(tok) => {
+            let (engine2, outs) = step_keytok(cfg, vs.engine, &tok, now_ms);
+            let mut msgs = vs.recent_msgs.clone();
+            for m in outs {
+                if msgs.len() >= 8 { msgs.pop_front(); }
+                msgs.push_back(m);
+            }
+            ViewState { engine: engine2, recent_msgs: msgs }
+        }
+    }
+}
+
+#[derive(Clone)]
+struct UiLine { text: String, rgb: (u8, u8, u8) }
+
+#[derive(Clone)]
+struct UiModel {
+    left_title: UiLine,
+    left_bindings: Vec<UiLine>,
+    combos_title: UiLine,
+    combos_lines: Vec<UiLine>,
+    right_title: UiLine,
+    cur_state_line: UiLine,
+    fail_line: UiLine,
+    outs_title: UiLine,
+    outs_lines: Vec<UiLine>,
+    recent_title: UiLine,
+    recent_lines: Vec<UiLine>,
+    footer: UiLine,
+}
+
+fn build_ui_model(cfg: &EngineConfig, st: &ViewState) -> UiModel {
+    let col_norm  = (220, 220, 220);
+    let col_hit   = (160, 240, 200);
+    let col_bind  = (230, 230, 230);
+    let col_title_l = (200, 200, 255);
+    let col_title_r = (200, 255, 200);
+    let col_sub    = (200, 200, 200);
+    let col_out    = (255, 215, 130);
+    let col_recent = (255, 255, 160);
+    let col_footer = (160, 160, 160);
+
+    let left_bindings: Vec<UiLine> = bindings(cfg)
+        .iter()
+        .map(|(key, internal)| UiLine { text: format!("{:>12}  →  {}", key, internal), rgb: col_bind })
+        .collect();
+
+    let combos_lines: Vec<UiLine> = combos_internal(cfg)
+        .iter()
+        .map(|(steps, mv)| {
+            let prefix_len = matched_prefix_len(cfg, st.engine.cur_state, steps);
+            let mut line = String::new();
+            for (i, internal) in steps.iter().enumerate() {
+                if i > 0 { line.push_str(" , "); }
+                let lbl = display_for_internal(cfg, internal);
+                line.push_str(&lbl);
+            }
+            line.push_str("  =>  ");
+            line.push_str(mv);
+            UiLine { text: line, rgb: if prefix_len > 0 { col_hit } else { col_norm } }
+        })
+        .collect();
+
+    let (outs_now, fail) = current_state_info(cfg, st.engine);
+
+    UiModel {
+        left_title: UiLine { text: "Keyboard bindings:".to_string(), rgb: col_title_l },
+        left_bindings,
+        combos_title: UiLine { text: "Available combos:".to_string(), rgb: col_title_l },
+        combos_lines,
+        right_title: UiLine { text: "Automaton".to_string(), rgb: col_title_r },
+        cur_state_line: UiLine { text: format!("Current state: {}", st.engine.cur_state), rgb: col_norm },
+        fail_line: UiLine { text: format!("Fail link: {}", fail), rgb: col_sub },
+        outs_title: UiLine { text: "Outputs at state:".to_string(), rgb: col_sub },
+        outs_lines: outs_now.into_iter().map(|o| UiLine { text: format!("• {}", o), rgb: col_out }).collect(),
+        recent_title: UiLine { text: "Recent:".to_string(), rgb: col_sub },
+        recent_lines: st.recent_msgs.iter().cloned().map(|m| UiLine { text: m, rgb: col_recent }).collect(),
+        footer: UiLine { text: "Exit: Ctrl+Esc o ctrl-c".to_string(), rgb: col_footer },
+    }
+}
+
+#[derive(Clone)]
+struct TextNode { x: i32, y: i32, line: UiLine }
+
+#[derive(Clone)]
+struct Scene { bg: (u8, u8, u8), texts: Vec<TextNode> }
+
+fn layout_scene(ui: &UiModel, font_h: i32) -> Scene {
+    let left_x: i32 = 16;
+    let right_x: i32 = 520;
+    let h_total: i32 = 600;
+    let line_h: i32 = font_h.max(16) + 6;
+
+    let mut texts = Vec::new();
+
+    /* left panel */
+    texts.push(TextNode { x: left_x, y: 14, line: ui.left_title.clone() });
+    let mut y = 14 + 28;
+    for l in &ui.left_bindings {
+        texts.push(TextNode { x: left_x, y, line: l.clone() });
+        y += line_h;
+    }
+    texts.push(TextNode { x: left_x, y: y + 20, line: ui.combos_title.clone() });
+    let mut yc = y + 20 + 28;
+    for l in &ui.combos_lines {
+        texts.push(TextNode { x: left_x, y: yc, line: l.clone() });
+        yc += line_h;
+    }
+
+    /* right panel */
+    texts.push(TextNode { x: right_x, y: 14, line: ui.right_title.clone() });
+    texts.push(TextNode { x: right_x, y: 40, line: ui.cur_state_line.clone() });
+    texts.push(TextNode { x: right_x, y: 68, line: ui.fail_line.clone() });
+    texts.push(TextNode { x: right_x, y: 96, line: ui.outs_title.clone() });
+    let mut y2 = 120;
+    for l in &ui.outs_lines {
+        texts.push(TextNode { x: right_x + 20, y: y2, line: l.clone() });
+        y2 += line_h;
+    }
+
+    texts.push(TextNode { x: right_x, y: 220, line: ui.recent_title.clone() });
+    let mut y3 = 244;
+    for l in &ui.recent_lines {
+        texts.push(TextNode { x: right_x + 20, y: y3, line: l.clone() });
+        y3 += line_h;
+    }
+
+    texts.push(TextNode { x: right_x - 150, y: h_total - 28, line: ui.footer.clone() });
+
+    Scene { bg: (18, 18, 18), texts }
+}
+
+pub fn run_sdl(
+    path: &str,
+    debug: bool,
+    step_timeout_ms: u64,
+    font_path: &str,
+) -> Result<(), String> {
+    let (cfg, st0) = engine_from_gmr_file(path, Duration::from_millis(step_timeout_ms))?;
+
     let sdl = sdl2::init().map_err(|e| e.to_string())?;
     let video = sdl.video().map_err(|e| e.to_string())?;
     let ttf = sdl2::ttf::init().map_err(|e| e.to_string())?;
@@ -56,28 +235,23 @@ pub fn run_sdl(path: &str, debug: bool, step_timeout_ms: u64, font_path: &str) -
         .resizable()
         .build()
         .map_err(|e| e.to_string())?;
+
     let mut canvas = window
         .into_canvas()
         .accelerated()
         .present_vsync()
         .build()
         .map_err(|e| e.to_string())?;
-    let texture_creator = canvas.texture_creator();
 
-    let measure_text = {
-        let font = &font;
-        move |text: &str| -> Result<(u32, u32), String> {
-            let surf = font.render(text).blended(Color::WHITE).map_err(|e| e.to_string())?;
-            Ok((surf.width(), surf.height()))
-        }
-    };
+    let texture_creator = canvas.texture_creator();
 
     let draw_text = {
         let font = &font;
         let texture_creator = &texture_creator;
         move |canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
-              x: i32, y: i32, text: &str, color: Color|
+              x: i32, y: i32, text: &str, rgb: (u8,u8,u8)|
               -> Result<(), String> {
+            let color = Color::RGB(rgb.0, rgb.1, rgb.2);
             let surface = font.render(text).blended(color).map_err(|e| e.to_string())?;
             let texture = texture_creator.create_texture_from_surface(&surface).map_err(|e| e.to_string())?;
             let rect = sdl2::rect::Rect::new(x, y, surface.width(), surface.height());
@@ -86,205 +260,38 @@ pub fn run_sdl(path: &str, debug: bool, step_timeout_ms: u64, font_path: &str) -
         }
     };
 
-    /* Layout constants */
-    let left_x: i32 = 16;
-    let right_x: i32 = 520; /* Right panel */
-    let panel_w_left: i32 = 480 - 32;
-    let h_total: i32 = 600;
-
-    /* scroll */
-    let mut scroll_bindings: i32 = 0;
-    let mut scroll_combos: i32 = 0;
-    let mut mouse_x: i32 = 0;
-    let mut mouse_y: i32 = 0;
-    let line_h: i32 = (font.height() as i32).max(16) + 6;
-
-    /* recent outputs */
-    let mut recent_msgs: VecDeque<String> = VecDeque::new();
-
+    let mut view = ViewState { engine: st0, recent_msgs: VecDeque::new() };
     let mut event_pump = sdl.event_pump().map_err(|e| e.to_string())?;
+    let start = Instant::now();
+
     'mainloop: loop {
-        /* Event handling */
-        for event in event_pump.poll_iter() {
-            match event {
-                Event::Quit {..} => break 'mainloop,
-                Event::MouseMotion { x, y, .. } => { mouse_x = x; mouse_y = y; }
-                Event::MouseWheel { y, .. } => {
-                    /* wheel up/down scrolls the panel under the mouse */
-                    let in_bindings = mouse_x >= left_x && mouse_x < right_x && mouse_y < 300;
-                    let in_combos   = mouse_x >= left_x && mouse_x < right_x && mouse_y >= 300 && mouse_y < h_total-20;
-                    let delta = (-y) * line_h;
-                    if in_bindings { scroll_bindings = (scroll_bindings + delta).max(0); }
-                    if in_combos   { scroll_combos   = (scroll_combos   + delta).max(0); }
-                }
-                Event::KeyDown { keycode: Some(kc), keymod, repeat, .. } if !repeat => {
-                    /* PageUp/PageDown scrolling */
-                    match kc {
-                        Keycode::PageDown => { if mouse_x < right_x { scroll_bindings += 8*line_h; } else { scroll_combos += 8*line_h; } }
-                        Keycode::PageUp   => { if mouse_x < right_x { scroll_bindings = (scroll_bindings - 8*line_h).max(0); } else { scroll_combos = (scroll_combos - 8*line_h).max(0); } }
-                        _ => {}
-                    }
-
-                    if let Some(keytok) = keytok_from_sdl(kc, keymod) {
-                        /* Exit */
-                        if keytok == "ctrl-c" || (kc == Keycode::Escape && keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD)) {
-                            break 'mainloop;
-                        }
-
-                        let outs = eng.step_keytok(&keytok, Instant::now());
-                        for m in outs {
-                            if recent_msgs.len() >= 8 { recent_msgs.pop_front(); }
-                            recent_msgs.push_back(m);
-                        }
-                        if debug {
-                            println!("{keytok}  ⇒  state={}", eng.current_state());
-                        }
-                    }
-                }
-                _ => {}
+        let mut evs: Vec<AppEvent> = Vec::new();
+        for ev in event_pump.poll_iter() {
+            if let Some(ae) = map_sdl_event(ev) {
+                evs.push(ae);
             }
         }
+        let should_quit = evs.iter().any(|e| matches!(e, AppEvent::Quit));
 
-        /* start drawing */
-        canvas.set_draw_color(Color::RGB(18, 18, 18));
+        let now_ms: NowMs = start.elapsed().as_millis() as u128;
+        view = evs.into_iter().fold(view, |acc, e| reduce(&cfg, &acc, e, now_ms));
+
+        let ui = build_ui_model(&cfg, &view);
+        let scene = layout_scene(&ui, font.height() as i32);
+
+        let (r, g, b) = scene.bg;
+        canvas.set_draw_color(Color::RGB(r, g, b));
         canvas.clear();
-
-        /* (Right) Key bindings */
-        let bindings_top = 14 - scroll_bindings + 28; // Initial y position for bindings
-        (draw_text)(&mut canvas, left_x, 14 - scroll_bindings, "Keyboard bindings:", Color::RGB(200, 200, 255))?;
-        
-        eng.bindings()
-            .iter()
-            .enumerate()
-            .for_each(|(i, (key, internal))| {
-                let y = bindings_top + (i as i32) * line_h;
-                let line = format!("{:>12}  →  {}", key, internal);
-                let _ = (draw_text)(&mut canvas, left_x, y, &line, Color::RGB(230, 230, 230));
-            });
-
-        /* Scroll */
-        let bindings_content_h = (bindings_top + ((eng.bindings().len() as i32) * line_h)) - 14;
-        let max_scroll_bindings = (bindings_content_h - (300 - 14)).max(0);
-        if scroll_bindings > max_scroll_bindings { scroll_bindings = max_scroll_bindings; }
-
-        /* (Left) Combos */
-        let mut yc = 314 - scroll_combos;
-        (draw_text)(&mut canvas, left_x, 300 - scroll_combos, "Available combos:", Color::RGB(200, 200, 255))?;
-
-        let col_norm  = Color::RGB(220, 220, 220);
-        let col_sep   = Color::RGB(160, 160, 160);
-        let col_hit   = Color::RGB(160, 240, 200);
-        let col_move  = Color::RGB(255, 235, 140);
-
-        let draw_segments_wrapped = |canvas: &mut sdl2::render::Canvas<sdl2::video::Window>,
-                                     start_x: i32,
-                                     mut yline: i32,
-                                     max_w: i32,
-                                     segs: &[(String, Color)]|
-            -> Result<i32, String> {
-            let mut x = start_x;
-            let mut consumed_h = line_h;
-            for (text, color) in segs {
-                let (w, _) = measure_text(text)?;
-                if x + (w as i32) <= start_x + max_w {
-                    (draw_text)(canvas, x, yline, text, *color)?;
-                    x += w as i32;
-                    continue;
-                }
-                let mut chunk = String::new();
-                let mut last_break = 0usize;
-                let chars: Vec<char> = text.chars().collect();
-                for (i, ch) in chars.iter().enumerate() {
-                    chunk.push(*ch);
-                    let (cw, _) = measure_text(&chunk)?;
-                    let fits = x + (cw as i32) <= start_x + max_w;
-                    let is_break = *ch == ' ' || *ch == '/' || *ch == ',';
-                    if !fits {
-                        /* wrap to next line */
-                        yline += line_h;
-                        consumed_h += line_h;
-                        x = start_x;
-                        /* draw previous chunk without the char that overflowed */
-                        let prev = &text[last_break..i];
-                        if !prev.is_empty() { (draw_text)(canvas, x, yline, prev, *color)?; }
-                        x += measure_text(prev)?.0 as i32;
-                        chunk.clear();
-                        chunk.push(*ch);
-                        last_break = i;
-                    } else if is_break {
-                        /* draw up to here and continue */
-                        let piece = &text[last_break..=i];
-                        (draw_text)(canvas, x, yline, piece, *color)?;
-                        x += measure_text(piece)?.0 as i32;
-                        last_break = i + 1;
-                        chunk.clear();
-                    }
-                }
-                /* remainder */
-                let tail = &text[last_break..];
-                if !tail.is_empty() {
-                    let (tw, _) = measure_text(tail)?;
-                    if x + (tw as i32) > start_x + max_w {
-                        /* wrap once more if needed */
-                        yline += line_h;
-                        consumed_h += line_h;
-                        x = start_x;
-                    }
-                    (draw_text)(canvas, x, yline, tail, *color)?;
-                    x += tw as i32;
-                }
-            }
-            Ok(consumed_h)
-        };
-
-        let combos_area_bottom = h_total - 20;
-        let combos_top = 300;
-
-        /* Build all the combos internal. */
-        for (steps, mv) in eng.combos_internal().iter() {
-            let prefix_len = eng.matched_prefix_len(steps);
-            let mut segs: Vec<(String, Color)> = Vec::new();
-
-            for (i, internal) in steps.iter().enumerate() {
-                if i > 0 { segs.push((" , ".to_string(), col_sep)); }
-                let label = eng.display_for_internal(internal);
-                let color = if i < prefix_len { col_hit } else { col_norm };
-                segs.push((label, color));
-            }
-            segs.push(("  =>  ".to_string(), col_sep));
-            segs.push((mv.clone(), col_move));
-
-            let sim_y = yc;
-            let height_used = draw_segments_wrapped(&mut canvas, left_x, sim_y, panel_w_left, &segs)?;
-            yc += height_used;
-            if yc > combos_area_bottom - scroll_combos { break; }
+        for node in &scene.texts {
+            (draw_text)(&mut canvas, node.x, node.y, &node.line.text, node.line.rgb)?;
         }
-        let combos_content_h = (yc - (300 - scroll_combos)).max(0);
-        let max_scroll_combos = (combos_content_h - (combos_area_bottom - combos_top)).max(0);
-        if scroll_combos > max_scroll_combos { scroll_combos = max_scroll_combos; }
-
-        (draw_text)(&mut canvas, right_x, 14, "Automaton", Color::RGB(200, 255, 200))?;
-        (draw_text)(&mut canvas, right_x, 40, &format!("Current state: {}", eng.current_state()), Color::RGB(230, 230, 230))?;
-        let (outs_now, fail) = eng.current_state_info();
-        (draw_text)(&mut canvas, right_x, 68, &format!("Fail link: {}", fail), Color::RGB(200, 200, 200))?;
-        (draw_text)(&mut canvas, right_x, 96, "Outputs at state:", Color::RGB(200, 200, 200))?;
-        let mut y2 = 120;
-        for o in &outs_now {
-            (draw_text)(&mut canvas, right_x + 20, y2, &format!("• {}", o), Color::RGB(255, 215, 130))?;
-            y2 += line_h;
-        }
-
-        (draw_text)(&mut canvas, right_x, 220, "Recent:", Color::RGB(200, 200, 200))?;
-        let mut y3 = 244;
-        for m in &recent_msgs {
-            (draw_text)(&mut canvas, right_x + 20, y3, &format!("{}", m), Color::RGB(255, 255, 160))?;
-            y3 += line_h;
-        }
-
-        /* Footer */
-        (draw_text)(&mut canvas, right_x - 150, h_total - 28, "Scroll: mouse wheel / PgUp/PgDn • Exit: Ctrl+Esc or ctrl-c", Color::RGB(160, 160, 160))?;
-
         canvas.present();
+
+        if debug {
+            eprintln!("[state={}]", view.engine.cur_state);
+        }
+
+        if should_quit { break 'mainloop; }
     }
 
     Ok(())

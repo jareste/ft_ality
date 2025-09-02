@@ -161,7 +161,7 @@ impl Automaton {
         Automaton { states, start: 0, sym_by_token, token_by_sym }
     }
 
-    /* δ(cur, tok) → (next, outputs). */
+    /* (cur, tok) → (next, outputs). */
     pub fn step(&self, cur: usize, internal_tok: &str) -> (usize, Vec<String>) {
         match self.sym_by_token.get(internal_tok) {
             None => (self.start, Vec::new()),
@@ -182,5 +182,12 @@ impl Automaton {
 
     pub fn state_info(&self, idx: usize) -> (Vec<String>, usize) {
         (self.states[idx].outputs.iter().cloned().collect(), self.states[idx].fail)
+    }
+
+
+    pub fn outputs_at(&self, state: usize) -> Vec<String> {
+        self.states.get(state)
+            .map(|state_info| state_info.outputs.iter().cloned().collect())
+            .unwrap_or_default()
     }
 }
