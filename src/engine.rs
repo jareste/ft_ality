@@ -4,7 +4,6 @@ use std::time::{Duration, Instant};
 use crate::automaton::Automaton;
 use crate::parse::{classify, parse_gmr_file};
 
-/// How many alternative keys to show for a single internal token.
 pub const MAX_ALTS_PER_STEP: usize = 2;
 
 pub struct Engine {

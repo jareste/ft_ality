@@ -16,6 +16,7 @@ pub struct Automaton {
     states: Vec<State>,
     start: usize,
     sym_by_token: HashMap<String, Sym>,
+    #[allow(dead_code)]
     token_by_sym: Vec<String>,
 }
 

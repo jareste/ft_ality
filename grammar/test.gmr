@@ -6,6 +6,25 @@
 
 [Down], [Right], [FP] -> Fireball (Generic)
 [Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide (Generic)
+[Left], [Left], [BK] -> Slide2 (Generic)
 
 down -> [Down]
 left -> [Left]
@@ -15,4 +34,6 @@ right -> [Right]
 q -> [BP]
 w -> [FP]
 e -> [E]
+o -> [P]
+[ -> [5]
 

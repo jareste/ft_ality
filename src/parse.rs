@@ -73,13 +73,16 @@ pub fn parse_gmr(input: &str) -> Result<Grammar, ParseError> {
     let rules: Vec<Rule> = input
         .lines()
         .enumerate()
-        .try_fold(Vec::new(), |mut acc, (idx, raw_line)| {
+        .filter_map(|(idx, raw_line)| {
             let line_no = idx + 1;
             let line = raw_line.trim();
             if line.is_empty() || line.starts_with('#') {
-                return Ok(acc);
+                None
+            } else {
+                Some((line_no, line))
             }
-
+        })
+        .map(|(line_no, line)| {
             let (lhs, rhs) = line
                 .split_once("->")
                 .map(|(l, r)| (l.trim(), r.trim()))
@@ -100,9 +103,9 @@ pub fn parse_gmr(input: &str) -> Result<Grammar, ParseError> {
                 return Err(ParseError::EmptySequence { line_no });
             }
 
-            acc.push(Rule { sequence, move_name: rhs.to_string() });
-            Ok(acc)
-        })?;
+            Ok(Rule { sequence, move_name: rhs.to_string() })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
 
     let alphabet: Vec<Token> = rules
         .iter()
@@ -124,41 +127,59 @@ pub fn classify(g: &Grammar) -> CompiledGrammar {
     #[inline]
     fn is_internal(s: &str) -> bool { s.starts_with('[') && s.ends_with(']') }
 
-    let (bindings, combos, internal_set, key_set) =
-        g.rules.iter().fold(
-            (Vec::<Binding>::new(), Vec::<Rule>::new(),
-             BTreeSet::<String>::new(), BTreeSet::<String>::new()),
-            |(mut bs, mut cs, mut iset, mut kset), r| {
-                let lhs_internal = r.sequence.iter().all(|t| is_internal(t.as_str()));
-                let rhs_internal = is_internal(&r.move_name);
-
-                match (r.sequence.len(), lhs_internal, rhs_internal) {
-                    /* keyboard -> internal (binding) */
-                    (1, false, true) => {
-                        let key = r.sequence[0].as_str().to_string();
-                        let internal = r.move_name.clone();
-                        kset.insert(key.clone());
-                        iset.insert(internal.clone());
-                        bs.push(Binding { key, internal });
-                    }
-                    /* internal* -> move (combo)  */
-                    (_, true, false) => {
-                        for t in &r.sequence { iset.insert(t.as_str().to_string()); }
-                        cs.push(r.clone());
-                    }
-                    /* anything else: ignore silently to keep purity (no prints). */
-                    _ => {}
-                }
-
-                (bs, cs, iset, kset)
+    let bindings: Vec<Binding> = g
+        .rules
+        .iter()
+        .filter_map(|r| {
+            let lhs_internal = r.sequence.iter().all(|t| is_internal(t.as_str()));
+            let rhs_internal = is_internal(&r.move_name);
+            match (r.sequence.len(), lhs_internal, rhs_internal) {
+                (1, false, true) => Some(Binding {
+                    key: r.sequence[0].as_str().to_string(),
+                    internal: r.move_name.clone(),
+                }),
+                _ => None,
             }
-        );
+        })
+        .collect();
+
+        let combos: Vec<Rule> = g
+        .rules
+        .iter()
+        .filter_map(|r| {
+            let lhs_internal = r.sequence.iter().all(|t| is_internal(t.as_str()));
+            let rhs_internal = is_internal(&r.move_name);
+            match (r.sequence.len(), lhs_internal, rhs_internal) {
+                (_, true, false) => Some(r.clone()),
+                _ => None,
+            }
+        })
+        .collect();
+
+    let internal_alphabet: Vec<String> = bindings
+        .iter()
+        .map(|b| b.internal.clone())
+        .chain(
+            combos
+                .iter()
+                .flat_map(|r| r.sequence.iter().map(|t| t.as_str().to_string())),
+        )
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
+
+    let key_alphabet: Vec<String> = bindings
+        .iter()
+        .map(|b| b.key.clone())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect();
 
     CompiledGrammar {
         combos,
         bindings,
-        internal_alphabet: internal_set.into_iter().collect(),
-        key_alphabet: key_set.into_iter().collect(),
+        internal_alphabet,
+        key_alphabet,
     }
 }
 

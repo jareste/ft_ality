@@ -7,7 +7,7 @@ use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod};
 use sdl2::pixels::Color;
 
-use crate::engine::{Engine, MAX_ALTS_PER_STEP};
+use crate::engine::{Engine};
 
 fn keycode_letter(kc: Keycode) -> Option<char> {
     Some(match kc {
@@ -90,7 +90,6 @@ pub fn run_sdl(path: &str, debug: bool, step_timeout_ms: u64, font_path: &str) -
     let left_x: i32 = 16;
     let right_x: i32 = 520; /* Right panel */
     let panel_w_left: i32 = 480 - 32;
-    let panel_w_right: i32 = 900 - right_x - 16;
     let h_total: i32 = 600;
 
     /* scroll */
@@ -151,15 +150,17 @@ pub fn run_sdl(path: &str, debug: bool, step_timeout_ms: u64, font_path: &str) -
         canvas.clear();
 
         /* (Right) Key bindings */
-        let mut y = 14 - scroll_bindings;
-        (draw_text)(&mut canvas, left_x, y, "Keyboard bindings:", Color::RGB(200, 200, 255))?;
-        y += 28;
-        let bindings_top = y;
-        for (key, internal) in eng.bindings().iter() {
-            let line = format!("{:>12}  →  {}", key, internal);
-            (draw_text)(&mut canvas, left_x, y, &line, Color::RGB(230, 230, 230))?;
-            y += line_h;
-        }
+        let bindings_top = 14 - scroll_bindings + 28; // Initial y position for bindings
+        (draw_text)(&mut canvas, left_x, 14 - scroll_bindings, "Keyboard bindings:", Color::RGB(200, 200, 255))?;
+        
+        eng.bindings()
+            .iter()
+            .enumerate()
+            .for_each(|(i, (key, internal))| {
+                let y = bindings_top + (i as i32) * line_h;
+                let line = format!("{:>12}  →  {}", key, internal);
+                let _ = (draw_text)(&mut canvas, left_x, y, &line, Color::RGB(230, 230, 230));
+            });
 
         /* Scroll */
         let bindings_content_h = (bindings_top + ((eng.bindings().len() as i32) * line_h)) - 14;
@@ -253,12 +254,8 @@ pub fn run_sdl(path: &str, debug: bool, step_timeout_ms: u64, font_path: &str) -
             segs.push(("  =>  ".to_string(), col_sep));
             segs.push((mv.clone(), col_move));
 
-            let mut sim_y = yc;
+            let sim_y = yc;
             let height_used = draw_segments_wrapped(&mut canvas, left_x, sim_y, panel_w_left, &segs)?;
-            let item_top = yc;
-            let item_bottom = yc + height_used;
-            let view_top = combos_top - scroll_combos;
-            let view_bottom = combos_area_bottom - scroll_combos;
             yc += height_used;
             if yc > combos_area_bottom - scroll_combos { break; }
         }
