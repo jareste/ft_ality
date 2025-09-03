@@ -22,8 +22,10 @@ fi
 
 if [ "$MODE" = "cli" ]; then
     echo "Running CLI mode with file: $FILE_PATH, timeout: ${TIMEOUT_MS}ms"
-    cargo run --bin cli -- "$FILE_PATH" --debug --timeout-ms="$TIMEOUT_MS"
+    cargo run --bin cli -- "$FILE_PATH" --timeout-ms="$TIMEOUT_MS"
+    # cargo run --bin cli -- "$FILE_PATH" --debug --timeout-ms="$TIMEOUT_MS"
 else
     echo "Running SDL mode with file: $FILE_PATH, timeout: ${TIMEOUT_MS}ms"
-    cargo run --features sdl --bin sdl -- "$FILE_PATH" --debug --timeout-ms="$TIMEOUT_MS" --font=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+    # cargo run --features sdl --bin sdl -- "$FILE_PATH" --debug --timeout-ms="$TIMEOUT_MS" --font=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
+    cargo run --features sdl --bin sdl -- "$FILE_PATH" --timeout-ms="$TIMEOUT_MS" --font=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf
 fi

@@ -9,7 +9,7 @@ use sdl2::pixels::Color;
 
 use crate::engine::{
     bindings, combos_internal, current_state_info, display_for_internal, engine_from_gmr_file,
-    matched_prefix_len, step_keytok, EngineConfig, EngineState,
+    matched_prefix_len, step_keytok, EngineConfig, EngineState, print_engine
 };
 
 #[derive(Debug, Clone)]
@@ -64,9 +64,8 @@ fn map_sdl_event(ev: Event) -> Option<AppEvent> {
     match ev {
         Event::Quit { .. } => Some(AppEvent::Quit),
         Event::KeyDown { keycode: Some(kc), keymod, repeat, .. } if !repeat => {
-            /* check if ctrl+esc or ctrl+c */
-            let ctrl = keymod.intersects(Mod::LCTRLMOD | Mod::RCTRLMOD);
-            if kc == Keycode::Escape && ctrl {
+            /* check if esc or ctrl+c */
+            if kc == Keycode::Escape {
                 return Some(AppEvent::Quit);
             }
             if let Some(tok) = keytok_from_sdl(kc, keymod) {
@@ -161,7 +160,7 @@ fn build_ui_model(cfg: &EngineConfig, st: &ViewState) -> UiModel {
         outs_lines: outs_now.into_iter().map(|o| UiLine { text: format!("• {}", o), rgb: col_out }).collect(),
         recent_title: UiLine { text: "Recent:".to_string(), rgb: col_sub },
         recent_lines: st.recent_msgs.iter().cloned().map(|m| UiLine { text: m, rgb: col_recent }).collect(),
-        footer: UiLine { text: "Exit: Ctrl+Esc o ctrl-c".to_string(), rgb: col_footer },
+        footer: UiLine { text: "Exit: Esc o ctrl-c".to_string(), rgb: col_footer },
     }
 }
 
@@ -223,6 +222,8 @@ pub fn run_sdl(
     font_path: &str,
 ) -> Result<(), String> {
     let (cfg, st0) = engine_from_gmr_file(path, Duration::from_millis(step_timeout_ms))?;
+
+    print_engine(&cfg);
 
     let sdl = sdl2::init().map_err(|e| e.to_string())?;
     let video = sdl.video().map_err(|e| e.to_string())?;

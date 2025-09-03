@@ -22,6 +22,36 @@ pub struct EngineState {
     pub last_time_ms: Option<u128>,
 }
 
+fn format_engine_info(cfg: &EngineConfig) -> String {
+    let mut output = String::new();
+    
+    output.push_str("Key mappings:\n");
+    for (key, internal) in &cfg.bindings_display {
+        output.push_str(&format!("{} -> {}\n", key, internal));
+    }
+    
+    output.push_str("----------------------\n");
+    
+    let mut grouped_combos: BTreeMap<Vec<String>, Vec<String>> = BTreeMap::new();
+    for (steps, move_name) in &cfg.combos_internal {
+        grouped_combos.entry(steps.clone()).or_default().push(move_name.clone());
+    }
+    
+    for (steps, moves) in grouped_combos {
+        output.push_str(&format!("{}\n", steps.join(", ")));
+        for move_name in moves {
+            output.push_str(&format!("{} !!\n", move_name));
+        }
+        output.push_str("\n");
+    }
+    
+    output
+}
+
+pub fn print_engine(cfg: &EngineConfig) {
+    print!("{}", format_engine_info(cfg));
+}
+
 pub fn build_engine(
     combos: &[crate::parse::Rule],
     bindings: &[(String, String)],

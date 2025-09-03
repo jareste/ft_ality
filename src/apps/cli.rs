@@ -1,16 +1,18 @@
 use std::time::Instant;
 use std::time::Duration;
-use crate::engine::{step_keytok, engine_from_gmr_file, current_state_info};
+use crate::engine::{step_keytok, engine_from_gmr_file, current_state_info, print_engine};
 use crate::input::io_shell::{enable_raw_mode, disable_raw_mode, read_key_token};
 
 pub fn run_cli(path: &str, debug: bool, step_timeout_ms: u64) -> Result<(), String> {
     let (cfg, mut st) = engine_from_gmr_file(path, Duration::from_millis(step_timeout_ms))?;
 
+    print_engine(&cfg);
+
     if let Err(e) = enable_raw_mode() {
         return Err(format!("Error enabling raw mode: {e}"));
     }
 
-    let timeout = Duration::from_millis(10_000);
+    let timeout = Duration::from_millis(500);
     let esc_tail_timeout = Duration::from_millis(120);
     loop {
         let keytok = match read_key_token(timeout, esc_tail_timeout) {
